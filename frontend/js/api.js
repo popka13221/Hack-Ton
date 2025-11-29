@@ -1,7 +1,7 @@
 const apiBase =
   (typeof window !== "undefined" && window.API_BASE) ||
   document.querySelector('meta[name="api-base"]')?.content ||
-  "http://localhost:8000";
+  `${window.location.protocol}//${window.location.hostname}:8000`;
 
 async function handleResponse(resp) {
   let data;
