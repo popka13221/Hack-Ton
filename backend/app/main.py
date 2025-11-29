@@ -64,13 +64,13 @@ app.add_middleware(
 async def log_requests(request: Request, call_next):
     start = time.perf_counter()
     try:
-    response = await call_next(request)
-    status = response.status_code
-    error = None
-except Exception as exc:
-    status = 500
-    error = str(exc)
-    response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+        response = await call_next(request)
+        status = response.status_code
+        error = None
+    except Exception as exc:
+        status = 500
+        error = str(exc)
+        response = JSONResponse({"detail": "Internal server error"}, status_code=500)
     duration_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
         json.dumps(
