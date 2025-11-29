@@ -1,17 +1,143 @@
-import { predictCsv, health } from "./api.js";
+import { analyzeCsv, health, resolveApiUrl } from "./api.js";
 
 const batchFile = document.getElementById("batch-file");
-const batchResult = document.getElementById("batch-result");
 const batchFileLabel = document.getElementById("batch-file-label");
 const dropzone = document.getElementById("dropzone");
-function setResult(el, html) {
-  el.innerHTML = html;
+const batchResult = document.getElementById("batch-result");
+const batchSample = document.getElementById("batch-sample");
+const batchStatus = document.getElementById("batch-status");
+const downloadLink = document.getElementById("download-link");
+const processingTime = document.getElementById("processing-time");
+const DEFAULT_FILE_LABEL = "Выбрать файл";
+const MODE_PREDICT = "predict";
+const MODE_SCORE = "score";
+
+const CLASS_NAMES = {
+  "0": "Нейтрально",
+  "1": "Позитив",
+  "2": "Негатив",
+};
+
+let isBusy = false;
+
+function setStatus(text, tone = "muted") {
+  if (!batchStatus) return;
+  batchStatus.textContent = text;
+  batchStatus.className = `pill ${tone}`;
 }
 
-function formatCounts(counts = {}) {
-  return Object.entries(counts)
-    .map(([k, v]) => `<span class="pill">${k}: ${v}</span>`)
-    .join(" ");
+function setProcessingTime(ms) {
+  if (!processingTime) return;
+  if (ms === undefined || ms === null) {
+    processingTime.classList.add("hidden");
+    processingTime.textContent = "";
+    return;
+  }
+  processingTime.textContent = `~${ms} мс`;
+  processingTime.classList.remove("hidden");
+}
+
+function setDownloadLink(url) {
+  if (!downloadLink) return;
+  if (url) {
+    downloadLink.href = url;
+    downloadLink.classList.remove("is-disabled");
+  } else {
+    downloadLink.href = "#";
+    downloadLink.classList.add("is-disabled");
+  }
+}
+
+function escapeHtml(text = "") {
+  return text.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
+function labelFromValue(val) {
+  if (val === undefined || val === null) return null;
+  return CLASS_NAMES[String(val)] || String(val);
+}
+
+function labelName(row) {
+  const label = row?.predicted_label;
+  if (label !== undefined && CLASS_NAMES[String(label)]) {
+    return CLASS_NAMES[String(label)];
+  }
+  if (row?.predicted_class_name) return row.predicted_class_name;
+  return "Класс не распознан";
+}
+
+function cardsToHtml(cards = []) {
+  return cards
+    .map(
+      (card) => `
+        <div class="stat-card">
+          <div class="stat-card__label">${card.label}</div>
+          <div class="stat-card__value">${card.value}</div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderSummary({ summary = { total_rows: 0, class_counts: {} }, mode = MODE_PREDICT, macro_f1, f1_per_class } = {}) {
+  if (!batchResult) return;
+  batchResult.classList.remove("hidden");
+  const counts = summary.class_counts || {};
+  const countCards = [
+    { label: "Всего строк", value: summary.total_rows ?? 0 },
+    { label: CLASS_NAMES["1"], value: counts["1"] ?? 0 },
+    { label: CLASS_NAMES["0"], value: counts["0"] ?? 0 },
+    { label: CLASS_NAMES["2"], value: counts["2"] ?? 0 },
+  ];
+  if (mode === MODE_SCORE) {
+    const formatScore = (val) => (val === undefined || val === null ? "—" : Number(val).toFixed(3));
+    const f1Cards = [
+      { label: "Macro-F1", value: formatScore(macro_f1) },
+      { label: `F1 ${CLASS_NAMES["1"]}`, value: formatScore(f1_per_class?.["1"]) },
+      { label: `F1 ${CLASS_NAMES["0"]}`, value: formatScore(f1_per_class?.["0"]) },
+      { label: `F1 ${CLASS_NAMES["2"]}`, value: formatScore(f1_per_class?.["2"]) },
+    ];
+    batchResult.innerHTML = `
+      <div class="stat-cards">${cardsToHtml(f1Cards)}</div>
+      <div class="stat-cards">${cardsToHtml(countCards)}</div>
+    `;
+    return;
+  }
+  batchResult.innerHTML = cardsToHtml(countCards);
+}
+
+function renderSample(sample = [], mode = MODE_PREDICT) {
+  if (!batchSample) return;
+  if (!sample.length) {
+    batchSample.textContent = "Нет данных — загрузите файл.";
+    batchSample.classList.add("muted");
+    batchSample.classList.remove("hidden");
+    return;
+  }
+  batchSample.classList.remove("muted");
+  batchSample.classList.remove("hidden");
+  const limited = sample.slice(0, 10);
+  const hasTrueLabel = mode === MODE_SCORE || limited.some((row) => row.label !== undefined);
+  const rows = limited
+    .map((row) => {
+      const trueLabel = hasTrueLabel ? `<td><span class="pill muted">${labelFromValue(row.label) || "—"}</span></td>` : "";
+      return `
+        <tr>
+          <td>${escapeHtml(row.text || "")}</td>
+          ${trueLabel}
+          <td><span class="pill">${labelName(row)}</span></td>
+        </tr>
+      `;
+    })
+    .join("");
+  const headerTrueLabel = hasTrueLabel ? "<th>Истина</th>" : "";
+  batchSample.innerHTML = `
+    <div class="sample-table__title">Фрагмент результата (первые ${Math.min(sample.length, 10)} строк)</div>
+    <table>
+      <thead><tr><th>Текст</th>${headerTrueLabel}<th>Предсказание</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function formatError(err) {
@@ -20,6 +146,7 @@ function formatError(err) {
 }
 
 function attachDragAndDrop(area, input, labelEl) {
+  if (!area || !input) return;
   ["dragenter", "dragover"].forEach((ev) =>
     area.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -39,7 +166,7 @@ function attachDragAndDrop(area, input, labelEl) {
     if (files && files.length) {
       input.files = files;
       if (labelEl) labelEl.textContent = files[0].name;
-      runPredict();
+      input.dispatchEvent(new Event("change", { bubbles: true }));
     }
   });
   input.addEventListener("change", () => {
@@ -49,43 +176,87 @@ function attachDragAndDrop(area, input, labelEl) {
   });
 }
 
+function clearReport() {
+  if (batchResult) {
+    batchResult.innerHTML = "";
+    batchResult.classList.add("hidden");
+  }
+  if (batchSample) {
+    batchSample.textContent = "Нет данных — загрузите файл.";
+    batchSample.classList.add("hidden");
+    batchSample.classList.add("muted");
+  }
+}
+
 async function initHealth() {
   try {
-    await health();
+    const resp = await health();
+    if (!isBusy && resp?.model_loaded) {
+      setStatus("Модель готова, загрузите CSV", "success");
+    }
   } catch (e) {
-    // no-op
+    if (!isBusy) {
+      setStatus("API недоступен, попробуйте позже", "error");
+    }
   }
 }
 
 async function runPredict() {
-  if (!batchFile.files.length) {
-    setResult(batchResult, `<span class="pill error">Выберите CSV</span>`);
+  if (isBusy) return;
+  const file = batchFile?.files?.[0];
+  if (!file) {
+    setStatus("Выберите CSV с колонкой text", "error");
     return;
   }
-  setResult(batchResult, `<span class="pill muted">Загружаем...</span>`);
+  isBusy = true;
+  setStatus("Отправляем файл в модель...", "muted");
+  setProcessingTime();
+  setDownloadLink(null);
+  clearReport();
   try {
-    const resp = await predictCsv(batchFile.files[0], { returnFile: false });
-    const counts = formatCounts(resp.summary?.class_counts);
-    const download = resp.file_url
-      ? `<a class="download-link" href="${resp.file_url}">Скачать результат</a>`
-      : "";
-    const time = resp.processing_time_ms ? `<span class="pill">~${resp.processing_time_ms} мс</span>` : "";
-    setResult(
-      batchResult,
-      `<div class="result-block">
-         <div>Строк: ${resp.summary?.total_rows ?? 0}</div>
-         <div class="stat-grid">${counts}</div>
-         <div>${download} ${time}</div>
-       </div>`
-    );
+    const resp = await analyzeCsv(file);
+    const mode = resp.mode === MODE_SCORE ? MODE_SCORE : MODE_PREDICT;
+    setStatus(mode === MODE_SCORE ? "Оценка завершена (валидация)" : "Анализ завершен", "success");
+    renderSummary({
+      summary: resp.summary,
+      mode,
+      macro_f1: resp.macro_f1,
+      f1_per_class: resp.f1_per_class,
+    });
+    renderSample(resp.sample || [], mode);
+    const fileUrl = resp.file_url ? resolveApiUrl(resp.file_url) : null;
+    setDownloadLink(fileUrl);
+    setProcessingTime(resp.processing_time_ms);
   } catch (e) {
-    setResult(batchResult, `<span class="pill error">${formatError(e)}</span>`);
+    setStatus(formatError(e), "error");
+    clearReport();
+    setDownloadLink(null);
+    setProcessingTime();
+  } finally {
+    isBusy = false;
+    if (batchFile) {
+      batchFile.value = "";
+    }
+    if (batchFileLabel) {
+      batchFileLabel.textContent = DEFAULT_FILE_LABEL;
+    }
   }
 }
 
-// Hooks
-batchFile && attachDragAndDrop(dropzone || batchFile.parentElement, batchFile, batchFileLabel);
-dropzone?.addEventListener("click", () => batchFile?.click());
+attachDragAndDrop(dropzone || batchFile?.parentElement, batchFile, batchFileLabel);
+dropzone?.addEventListener("click", (e) => {
+  if (e.target.closest("label")) return;
+  if (batchFile) batchFile.value = "";
+  batchFile?.click();
+});
 batchFile?.addEventListener("change", runPredict);
+batchFile?.addEventListener("click", () => {
+  // Позволяем выбрать тот же файл повторно.
+  batchFile.value = "";
+});
+batchFile?.addEventListener("input", () => {
+  // Safari может триггерить input вместо change.
+  if (!isBusy) runPredict();
+});
 
 initHealth();

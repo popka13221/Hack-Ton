@@ -26,15 +26,32 @@
         <h1>ОПРЕДЕЛИТЕЛЬ<br>ТОНАЛЬНОСТИ<br>ТЕКСТА</h1>
       </div>
       <div class="hero__right">
-        <div class="dropzone" id="dropzone">
-          <div class="dropzone__icon">
-            <img src="assets/Frame 4.svg" alt="upload">
+        <div class="panel-column">
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone__icon">
+              <img src="assets/Frame 4.svg" alt="upload">
+            </div>
+            <p class="dropzone__hint">Перетащите CSV с колонкой text или выберите файл</p>
+            <label class="file-btn primary">
+              <input type="file" id="batch-file" accept=".csv">
+              <span id="batch-file-label">Выбрать файл</span>
+            </label>
           </div>
-          <p class="dropzone__hint">Перетащите файл сюда или выберите его</p>
-          <label class="file-btn primary">
-            <input type="file" id="batch-file" accept=".csv">
-            <span id="batch-file-label">Выбрать файл</span>
-          </label>
+
+          <section class="report" aria-live="polite">
+            <div class="report__head">
+              <div>
+                <p class="report__title">Отчет по файлу</p>
+                <div id="batch-status" class="pill muted">Загрузите CSV с отзывами</div>
+              </div>
+              <div class="report__actions">
+                <a id="download-link" class="download-link is-disabled" target="_blank" rel="noopener">Скачать CSV</a>
+                <span id="processing-time" class="pill muted hidden"></span>
+              </div>
+            </div>
+            <div id="batch-result" class="stat-cards hidden"></div>
+            <div id="batch-sample" class="sample-table muted hidden">Нет данных — загрузите файл.</div>
+          </section>
         </div>
       </div>
     </main>

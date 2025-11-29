@@ -21,6 +21,7 @@ from .models import (
     PredictManyResponse,
     PredictCsvResponse,
     ScoreResponse,
+    AnalyzeCsvResponse,
 )
 from .ml_model import get_model
 from . import csv_utils, db
@@ -231,6 +232,73 @@ def score(request: Request, file: UploadFile = File(...)):
         file_url=file_url,
         processing_time_ms=duration_ms,
     )
+
+
+@app.post("/analyze_csv", response_model=AnalyzeCsvResponse)
+def analyze_csv(request: Request, file: UploadFile = File(...)):
+    enforce_rate_limit(request)
+    if TASK_SEM and not TASK_SEM.acquire(timeout=TASK_ACQUIRE_TIMEOUT):
+        raise HTTPException(status_code=429, detail="Слишком много одновременных задач, попробуйте позже")
+    try:
+        t0 = time.perf_counter()
+        df = csv_utils.read_upload(file, require_label=False)
+        has_label = "label" in df.columns
+        df_pred = csv_utils.add_predictions(df)
+        summary = csv_utils.summarize_predictions(df_pred)
+        sample = df_pred.head(20).to_dict(orient="records")
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        filename_prefix = "scored" if has_label else "predicted"
+        filename = f"{filename_prefix}_{uuid.uuid4().hex}.csv"
+        saved_path = csv_utils.save_dataframe_csv(df_pred, filename)
+        file_url = csv_utils.build_download_url(saved_path)
+
+        if has_label:
+            macro, per_class, support = csv_utils.score_predictions(df_pred)
+            cm = csv_utils.confusion(
+                df_pred["label"].astype(int).tolist(),
+                df_pred["predicted_label"].astype(int).tolist(),
+            )
+            csv_utils.persist_batch(
+                file_name=file.filename or "upload.csv",
+                purpose="score",
+                total_rows=len(df_pred),
+                class_counts=summary["class_counts"],
+                macro_f1=macro,
+                f1_per_class=per_class,
+                support=support,
+                output_path=str(saved_path),
+                df_with_preds=df_pred,
+            )
+            return AnalyzeCsvResponse(
+                mode="score",
+                summary=summary,
+                sample=sample,
+                file_url=file_url,
+                processing_time_ms=duration_ms,
+                macro_f1=macro,
+                f1_per_class=per_class,
+                support=support,
+                confusion_matrix=cm,
+            )
+
+        csv_utils.persist_batch(
+            file_name=file.filename or "upload.csv",
+            purpose="predict",
+            total_rows=summary["total_rows"],
+            class_counts=summary["class_counts"],
+            output_path=str(saved_path),
+            df_with_preds=df_pred,
+        )
+        return AnalyzeCsvResponse(
+            mode="predict",
+            summary=summary,
+            sample=sample,
+            file_url=file_url,
+            processing_time_ms=duration_ms,
+        )
+    finally:
+        if TASK_SEM:
+            TASK_SEM.release()
 
 
 @app.get("/download/{filename}")

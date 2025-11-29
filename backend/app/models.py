@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -46,3 +46,15 @@ class ScoreResponse(BaseModel):
     confusion_matrix: List[List[int]]
     file_url: Optional[str] = None
     processing_time_ms: Optional[int] = None
+
+
+class AnalyzeCsvResponse(BaseModel):
+    mode: Literal["predict", "score"]
+    summary: Optional[PredictCsvSummary] = None
+    sample: Optional[List[Dict[str, Any]]] = None
+    file_url: Optional[str] = None
+    processing_time_ms: Optional[int] = None
+    macro_f1: Optional[float] = None
+    f1_per_class: Optional[Dict[str, float]] = None
+    support: Optional[Dict[str, int]] = None
+    confusion_matrix: Optional[List[List[int]]] = None

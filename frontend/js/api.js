@@ -3,6 +3,8 @@ const apiBase =
   document.querySelector('meta[name="api-base"]')?.content ||
   `${window.location.protocol}//${window.location.hostname}:8000`;
 
+export const API_BASE = apiBase;
+
 async function handleResponse(resp) {
   let data;
   try {
@@ -48,6 +50,16 @@ export async function predictCsv(file, opts = {}) {
   return handleResponse(resp);
 }
 
+export async function analyzeCsv(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${apiBase}/analyze_csv`, {
+    method: "POST",
+    body: fd,
+  });
+  return handleResponse(resp);
+}
+
 export async function scoreCsv(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -56,4 +68,13 @@ export async function scoreCsv(file) {
     body: fd,
   });
   return handleResponse(resp);
+}
+
+export function resolveApiUrl(pathOrUrl) {
+  if (!pathOrUrl) return null;
+  try {
+    return new URL(pathOrUrl, apiBase).href;
+  } catch (e) {
+    return pathOrUrl;
+  }
 }
