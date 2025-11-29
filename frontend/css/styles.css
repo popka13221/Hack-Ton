@@ -240,6 +240,32 @@ a {
   color: var(--muted);
 }
 
+.progress {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(31, 41, 55, 0.08);
+  margin-top: 0.75rem;
+}
+
+.progress__bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(54, 112, 212, 0.15) 0%, rgba(54, 112, 212, 0.8) 50%, rgba(54, 112, 212, 0.15) 100%);
+  background-size: 200% 100%;
+  animation: progress-stripes 1.4s linear infinite;
+}
+
+@keyframes progress-stripes {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

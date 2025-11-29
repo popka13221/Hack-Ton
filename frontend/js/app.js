@@ -8,6 +8,7 @@ const batchSample = document.getElementById("batch-sample");
 const batchStatus = document.getElementById("batch-status");
 const downloadLink = document.getElementById("download-link");
 const processingTime = document.getElementById("processing-time");
+const analyzeProgress = document.getElementById("analyze-progress");
 const DEFAULT_FILE_LABEL = "Выбрать файл";
 const MODE_PREDICT = "predict";
 const MODE_SCORE = "score";
@@ -122,6 +123,15 @@ function setDownloadLink(url) {
   } else {
     downloadLink.href = "#";
     downloadLink.classList.add("is-disabled");
+  }
+}
+
+function setProgressVisible(visible) {
+  if (!analyzeProgress) return;
+  if (visible) {
+    analyzeProgress.classList.remove("hidden");
+  } else {
+    analyzeProgress.classList.add("hidden");
   }
 }
 
@@ -263,11 +273,13 @@ function clearReport() {
     batchSample.classList.add("hidden");
     batchSample.classList.add("muted");
   }
+  setProgressVisible(false);
 }
 
 function resetFileInput() {
   if (batchFile) {
     batchFile.value = "";
+    batchFile.disabled = false;
   }
   if (batchFileLabel) {
     batchFileLabel.textContent = DEFAULT_FILE_LABEL;
@@ -281,6 +293,9 @@ function stopPolling() {
   }
   currentTaskId = null;
   pollAttempt = 0;
+  if (batchFile) {
+    batchFile.disabled = false;
+  }
 }
 
 function handleResult(resp, { fromRestore = false } = {}) {
@@ -304,6 +319,7 @@ function handleResult(resp, { fromRestore = false } = {}) {
   } else {
     currentTaskId = null;
   }
+  setProgressVisible(false);
 }
 
 function handleError(message) {
@@ -316,6 +332,7 @@ function handleError(message) {
   resetFileInput();
   clearStoredTask();
   clearStoredResult();
+  setProgressVisible(false);
 }
 
 async function pollAnalyze(taskId) {
@@ -371,10 +388,14 @@ async function runPredict() {
   stopPolling();
   clearStoredTask();
   isBusy = true;
+  if (batchFile) {
+    batchFile.disabled = true;
+  }
   setStatus("Отправляем файл в модель...", "muted");
   setProcessingTime();
   setDownloadLink(null);
   clearReport();
+  setProgressVisible(true);
   clearStoredResult();
   try {
     const resp = await startAnalyzeCsv(file);
@@ -418,6 +439,7 @@ function restoreState() {
     currentTaskId = savedTaskId;
     isBusy = true;
     setStatus("Продолжаем анализ вашего файла...", "muted");
+    setProgressVisible(true);
     pollAttempt = 0;
     pollTimer = setTimeout(() => pollAnalyze(savedTaskId), POLL_INTERVAL_MS);
   }
