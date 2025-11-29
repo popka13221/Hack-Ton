@@ -37,6 +37,7 @@ from .config import (
 
 
 app = FastAPI(title="Sentiment Service", version="0.1.0")
+ANALYZE_TIMEOUT_SEC = 600
 logger = logging.getLogger(__name__)
 if MAX_CONCURRENT_TASKS > 0:
     TASK_SEM = threading.Semaphore(MAX_CONCURRENT_TASKS)
@@ -255,7 +256,7 @@ def analyze_csv_async(request: Request, file: UploadFile = File(...)):
     enforce_rate_limit(request)
     task_id = uuid.uuid4().hex
     data = file.file.read()
-    _set_task(task_id, status="processing")
+    _set_task(task_id, status="processing", started_at=time.time())
     thread = threading.Thread(
         target=_analyze_task_runner,
         args=(task_id, data, file.filename or "upload.csv"),
@@ -270,6 +271,11 @@ def analyze_csv_async_status(task_id: str):
     task = _get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
+    if task.get("status") == "processing" and task.get("started_at"):
+        elapsed = time.time() - task["started_at"]
+        if elapsed > ANALYZE_TIMEOUT_SEC:
+            _set_task(task_id, status="error", error="Превышен таймаут обработки")
+            task = _get_task(task_id)
     return task
 
 
@@ -306,6 +312,7 @@ def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
     has_label = "label" in df.columns
     df_pred = csv_utils.add_predictions(df)
     summary = csv_utils.summarize_predictions(df_pred)
+    source_breakdown = _summarize_sources(df_pred)
     sample = df_pred.head(20).to_dict(orient="records")
     duration_ms = int((time.perf_counter() - t0) * 1000)
     filename_prefix = "scored" if has_label else "predicted"
@@ -339,6 +346,7 @@ def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
             f1_per_class=per_class,
             support=support,
             confusion_matrix=cm,
+            source_breakdown=source_breakdown,
         )
 
     csv_utils.persist_batch(
@@ -355,6 +363,7 @@ def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
         sample=sample,
         file_url=file_url,
         processing_time_ms=duration_ms,
+        source_breakdown=source_breakdown,
     )
 
 
@@ -366,8 +375,9 @@ def _analyze_task_runner(task_id: str, data: bytes, filename: str):
             if not acquired:
                 _set_task(task_id, status="error", error="Слишком много одновременных задач, попробуйте позже")
                 return
+        started = time.time()
         result = _process_analyze_bytes(data, filename)
-        _set_task(task_id, status="completed", result=result)
+        _set_task(task_id, status="completed", result=result, duration=time.time() - started)
     except Exception as exc:
         logger.warning("Async analyze failed: %s", exc, exc_info=True)
         _set_task(task_id, status="error", error=str(exc))
@@ -376,8 +386,14 @@ def _analyze_task_runner(task_id: str, data: bytes, filename: str):
             TASK_SEM.release()
 
 
-def _set_task(task_id: str, status: str, result: AnalyzeCsvResponse | None = None, error: str | None = None):
-    payload = {"task_id": task_id, "status": status}
+def _set_task(
+    task_id: str,
+    status: str,
+    result: AnalyzeCsvResponse | None = None,
+    error: str | None = None,
+    **extra,
+):
+    payload = {"task_id": task_id, "status": status, **extra}
     if result:
         payload["result"] = result if isinstance(result, dict) else result.dict()
     if error:
@@ -390,3 +406,17 @@ def _get_task(task_id: str):
     with _task_lock:
         task = _tasks.get(task_id)
     return task
+
+
+def _summarize_sources(df):
+    if "src" not in df.columns or "predicted_label" not in df.columns:
+        return None
+    try:
+        breakdown = {}
+        for src, group in df.groupby("src"):
+            counts = group["predicted_label"].value_counts().to_dict()
+            breakdown[str(src)] = {str(int(k)): int(v) for k, v in counts.items()}
+        return breakdown or None
+    except Exception as exc:
+        logger.warning("Не удалось посчитать распределение по источникам: %s", exc)
+        return None

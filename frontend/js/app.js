@@ -9,6 +9,10 @@ const batchStatus = document.getElementById("batch-status");
 const downloadLink = document.getElementById("download-link");
 const processingTime = document.getElementById("processing-time");
 const analyzeProgress = document.getElementById("analyze-progress");
+const fileButton = batchFile?.closest(".file-btn");
+const classChartEl = document.getElementById("class-chart");
+const sourceChartEl = document.getElementById("source-chart");
+const sourceChartWrap = document.getElementById("source-chart-wrap");
 const DEFAULT_FILE_LABEL = "Выбрать файл";
 const MODE_PREDICT = "predict";
 const MODE_SCORE = "score";
@@ -29,6 +33,8 @@ let isBusy = false;
 let currentTaskId = null;
 let pollTimer = null;
 let pollAttempt = 0;
+let classChart = null;
+let sourceChart = null;
 
 function canUseStorage() {
   try {
@@ -227,6 +233,78 @@ function renderSample(sample = [], mode = MODE_PREDICT) {
   `;
 }
 
+function destroyCharts() {
+  if (classChart) {
+    classChart.destroy();
+    classChart = null;
+  }
+  if (sourceChart) {
+    sourceChart.destroy();
+    sourceChart = null;
+  }
+  sourceChartWrap?.classList.add("hidden");
+}
+
+function renderCharts(summary = { class_counts: {} }, sourceBreakdown = null) {
+  if (typeof Chart === "undefined" || !classChartEl) return;
+  const counts = summary?.class_counts || {};
+  const classOrder = ["1", "0", "2"];
+  const labels = classOrder.map((k) => CLASS_NAMES[k] || k);
+  const data = classOrder.map((k) => counts[k] || 0);
+  destroyCharts();
+  classChart = new Chart(classChartEl, {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [
+        {
+          data,
+          backgroundColor: ["#22c55e", "#9ca3af", "#ef4444"],
+          borderWidth: 0,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        legend: { position: "bottom" },
+      },
+      cutout: "55%",
+    },
+  });
+
+  const hasSources = sourceBreakdown && Object.keys(sourceBreakdown || {}).length > 0;
+  if (!hasSources || !sourceChartEl) {
+    sourceChartWrap?.classList.add("hidden");
+    return;
+  }
+  const srcEntries = Object.entries(sourceBreakdown || {}).sort((a, b) => {
+    const sum = (obj) => Object.values(obj || {}).reduce((acc, v) => acc + v, 0);
+    return sum(b[1]) - sum(a[1]);
+  });
+  const srcLabels = srcEntries.map(([src]) => src);
+  const colors = { "1": "#22c55e", "0": "#9ca3af", "2": "#ef4444" };
+  const datasets = classOrder.map((cls) => ({
+    label: CLASS_NAMES[cls] || cls,
+    data: srcEntries.map(([, c]) => c?.[cls] || 0),
+    backgroundColor: colors[cls],
+  }));
+  sourceChart = new Chart(sourceChartEl, {
+    type: "bar",
+    data: { labels: srcLabels, datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: "bottom" },
+      },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+      },
+    },
+  });
+  sourceChartWrap?.classList.remove("hidden");
+}
+
 function formatError(err) {
   if (!err) return "Неизвестная ошибка";
   return err.message || String(err);
@@ -274,6 +352,7 @@ function clearReport() {
     batchSample.classList.add("muted");
   }
   setProgressVisible(false);
+  destroyCharts();
 }
 
 function resetFileInput() {
@@ -284,6 +363,7 @@ function resetFileInput() {
   if (batchFileLabel) {
     batchFileLabel.textContent = DEFAULT_FILE_LABEL;
   }
+  fileButton?.classList.remove("disabled");
 }
 
 function stopPolling() {
@@ -311,6 +391,7 @@ function handleResult(resp, { fromRestore = false } = {}) {
   const fileUrl = resp.file_url ? resolveApiUrl(resp.file_url) : null;
   setDownloadLink(fileUrl);
   setProcessingTime(resp.processing_time_ms);
+  renderCharts(resp.summary, resp.source_breakdown);
   isBusy = false;
   persistResult(resp);
   if (!fromRestore) {
@@ -333,6 +414,7 @@ function handleError(message) {
   clearStoredTask();
   clearStoredResult();
   setProgressVisible(false);
+  renderCharts();
 }
 
 async function pollAnalyze(taskId) {
@@ -391,6 +473,7 @@ async function runPredict() {
   if (batchFile) {
     batchFile.disabled = true;
   }
+  fileButton?.classList.add("disabled");
   setStatus("Отправляем файл в модель...", "muted");
   setProcessingTime();
   setDownloadLink(null);

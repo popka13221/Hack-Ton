@@ -52,6 +52,16 @@
             <div id="analyze-progress" class="progress hidden">
               <div class="progress__bar"></div>
             </div>
+            <div class="charts">
+              <div class="chart-card">
+                <div class="chart-card__title">Распределение по классам</div>
+                <canvas id="class-chart" height="140"></canvas>
+              </div>
+              <div class="chart-card hidden" id="source-chart-wrap">
+                <div class="chart-card__title">По источникам</div>
+                <canvas id="source-chart" height="140"></canvas>
+              </div>
+            </div>
             <div id="batch-result" class="stat-cards hidden"></div>
             <div id="batch-sample" class="sample-table muted hidden">Нет данных — загрузите файл.</div>
           </section>
@@ -60,6 +70,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="js/api.js" type="module"></script>
   <script src="js/app.js" type="module"></script>
 </body>

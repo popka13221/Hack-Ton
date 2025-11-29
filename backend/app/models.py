@@ -54,6 +54,7 @@ class AnalyzeCsvResponse(BaseModel):
     sample: Optional[List[Dict[str, Any]]] = None
     file_url: Optional[str] = None
     processing_time_ms: Optional[int] = None
+    source_breakdown: Optional[Dict[str, Dict[str, int]]] = None
     macro_f1: Optional[float] = None
     f1_per_class: Optional[Dict[str, float]] = None
     support: Optional[Dict[str, int]] = None

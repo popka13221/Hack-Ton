@@ -184,6 +184,12 @@ a {
   box-shadow: 0 8px 20px rgba(54, 112, 212, 0.35);
 }
 
+.file-btn.disabled span {
+  background: #9ca3af;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .file-btn.dragover {
   outline: 1px dashed rgba(54, 112, 212, 0.6);
 }
@@ -255,6 +261,26 @@ a {
   background: linear-gradient(90deg, rgba(54, 112, 212, 0.15) 0%, rgba(54, 112, 212, 0.8) 50%, rgba(54, 112, 212, 0.15) 100%);
   background-size: 200% 100%;
   animation: progress-stripes 1.4s linear infinite;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.chart-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.75rem 0.85rem 0.5rem;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(0, 37, 93, 0.05);
+}
+
+.chart-card__title {
+  font-weight: 700;
+  margin-bottom: 0.5rem;
 }
 
 @keyframes progress-stripes {
