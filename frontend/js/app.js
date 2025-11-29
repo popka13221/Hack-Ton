@@ -18,6 +18,7 @@ const MODE_PREDICT = "predict";
 const MODE_SCORE = "score";
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_ATTEMPTS = 150; // ~5 минут ожидания
+const MAX_TIMEOUT_RETRIES = 1;
 const STORAGE_KEYS = {
   taskId: "analyze_task_id",
   result: "analyze_result",
@@ -35,6 +36,8 @@ let pollTimer = null;
 let pollAttempt = 0;
 let classChart = null;
 let sourceChart = null;
+let lastFile = null;
+let timeoutRetryCount = 0;
 
 function canUseStorage() {
   try {
@@ -392,6 +395,7 @@ function handleResult(resp, { fromRestore = false } = {}) {
   setDownloadLink(fileUrl);
   setProcessingTime(resp.processing_time_ms);
   renderCharts(resp.summary, resp.source_breakdown);
+  timeoutRetryCount = 0;
   isBusy = false;
   persistResult(resp);
   if (!fromRestore) {
@@ -403,8 +407,15 @@ function handleResult(resp, { fromRestore = false } = {}) {
   setProgressVisible(false);
 }
 
+function isTimeoutError(message) {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("таймаут") || lower.includes("timeout");
+}
+
 function handleError(message) {
-  setStatus(message || "Ошибка", "error");
+  const timeout = isTimeoutError(message);
+  setStatus(message || "Ошибка", timeout ? "muted" : "error");
   clearReport();
   setDownloadLink(null);
   setProcessingTime();
@@ -415,6 +426,14 @@ function handleError(message) {
   clearStoredResult();
   setProgressVisible(false);
   renderCharts();
+
+  const canRetry = timeout && lastFile && timeoutRetryCount < MAX_TIMEOUT_RETRIES;
+  if (canRetry) {
+    timeoutRetryCount += 1;
+    setStatus("Таймаут, повторяем отправку файла...", "muted");
+    setProgressVisible(true);
+    setTimeout(() => runPredict(lastFile, { isRetry: true }), 600);
+  }
 }
 
 async function pollAnalyze(taskId) {
@@ -460,12 +479,16 @@ async function initHealth() {
   }
 }
 
-async function runPredict() {
+async function runPredict(fileArg = null, opts = {}) {
   if (isBusy) return;
-  const file = batchFile?.files?.[0];
+  const file = fileArg || batchFile?.files?.[0] || lastFile;
   if (!file) {
     setStatus("Выберите CSV с колонкой text", "error");
     return;
+  }
+  if (!opts.isRetry) {
+    lastFile = file;
+    timeoutRetryCount = 0;
   }
   stopPolling();
   clearStoredTask();

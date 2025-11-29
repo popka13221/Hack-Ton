@@ -38,6 +38,7 @@ from .config import (
 
 app = FastAPI(title="Sentiment Service", version="0.1.0")
 ANALYZE_TIMEOUT_SEC = 600
+TASK_TTL_SEC = 3600
 logger = logging.getLogger(__name__)
 if MAX_CONCURRENT_TASKS > 0:
     TASK_SEM = threading.Semaphore(MAX_CONCURRENT_TASKS)
@@ -256,7 +257,8 @@ def analyze_csv_async(request: Request, file: UploadFile = File(...)):
     enforce_rate_limit(request)
     task_id = uuid.uuid4().hex
     data = file.file.read()
-    _set_task(task_id, status="processing", started_at=time.time())
+    now = time.time()
+    _set_task(task_id, status="processing", started_at=now, updated_at=now)
     thread = threading.Thread(
         target=_analyze_task_runner,
         args=(task_id, data, file.filename or "upload.csv"),
@@ -268,6 +270,7 @@ def analyze_csv_async(request: Request, file: UploadFile = File(...)):
 
 @app.get("/analyze_csv_async/{task_id}", response_model=AnalyzeTaskStatus)
 def analyze_csv_async_status(task_id: str):
+    _cleanup_tasks()
     task = _get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
@@ -276,6 +279,8 @@ def analyze_csv_async_status(task_id: str):
         if elapsed > ANALYZE_TIMEOUT_SEC:
             _set_task(task_id, status="error", error="Превышен таймаут обработки")
             task = _get_task(task_id)
+        else:
+            task["elapsed_ms"] = int(elapsed * 1000)
     return task
 
 
@@ -377,10 +382,16 @@ def _analyze_task_runner(task_id: str, data: bytes, filename: str):
                 return
         started = time.time()
         result = _process_analyze_bytes(data, filename)
-        _set_task(task_id, status="completed", result=result, duration=time.time() - started)
+        _set_task(
+            task_id,
+            status="completed",
+            result=result,
+            duration=time.time() - started,
+            finished_at=time.time(),
+        )
     except Exception as exc:
         logger.warning("Async analyze failed: %s", exc, exc_info=True)
-        _set_task(task_id, status="error", error=str(exc))
+        _set_task(task_id, status="error", error=str(exc), finished_at=time.time())
     finally:
         if acquired:
             TASK_SEM.release()
@@ -393,7 +404,10 @@ def _set_task(
     error: str | None = None,
     **extra,
 ):
-    payload = {"task_id": task_id, "status": status, **extra}
+    now = time.time()
+    payload = {"task_id": task_id, "status": status, "updated_at": now, **extra}
+    if status == "processing":
+        payload.setdefault("started_at", now)
     if result:
         payload["result"] = result if isinstance(result, dict) else result.dict()
     if error:
@@ -420,3 +434,18 @@ def _summarize_sources(df):
     except Exception as exc:
         logger.warning("Не удалось посчитать распределение по источникам: %s", exc)
         return None
+
+
+def _cleanup_tasks():
+    """Удаляем завершенные/ошибочные задачи, которым больше TASK_TTL_SEC."""
+    if TASK_TTL_SEC <= 0:
+        return
+    now = time.time()
+    to_delete = []
+    with _task_lock:
+        for task_id, task in list(_tasks.items()):
+            finished_at = task.get("finished_at") or task.get("updated_at") or 0
+            if task.get("status") in ("completed", "error") and finished_at and (now - finished_at > TASK_TTL_SEC):
+                to_delete.append(task_id)
+        for task_id in to_delete:
+            _tasks.pop(task_id, None)
