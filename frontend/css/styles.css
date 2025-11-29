@@ -5,8 +5,6 @@
   --accent: #3670d4;
   --accent-soft: rgba(54, 112, 212, 0.2);
   --border: #e5e7eb;
-  --success: #16a34a;
-  --error: #dc2626;
 }
 
 * {
@@ -20,7 +18,7 @@ body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
-  min-height: 100%;
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -32,6 +30,9 @@ a {
   max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem 1rem 2.5rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .topbar {
@@ -42,7 +43,8 @@ a {
 }
 
 .logo img {
-  height: 32px;
+  height: 40px;
+  width: 64px;
 }
 
 .login {
@@ -61,54 +63,75 @@ a {
 
 .hero {
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 2rem;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 728px);
+  gap: 1rem;
   align-items: center;
+  flex: 1;
+  min-height: calc(100vh - 160px);
+  width: 100%;
+  overflow: hidden;
+}
+
+.hero__left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  transform: none;
+  margin-right: 0;
+  padding-top: 10px;
+  min-width: 392px;
+  max-width: 392px;
 }
 
 .hero__left h1 {
   margin: 0;
-  font-size: 2.4rem;
-  line-height: 1.15;
-  letter-spacing: -0.01em;
+  font-size: 44px;
+  line-height: 60px;
+  letter-spacing: -0.03em;
   text-align: right;
-}
-
-.status-bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.05);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  font-size: 0.9rem;
-  margin-top: 0.8rem;
-}
-
-.status-bar.error {
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #b91c1c;
+  text-transform: uppercase;
+  font-family: "Ubuntu", "Inter", system-ui, -apple-system, sans-serif;
+  width: 392px;
+  min-width: 392px;
+  max-width: 392px;
+  white-space: normal;
+  word-break: keep-all;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .hero__right {
   width: 100%;
+  max-width: 728px;
+  display: flex;
+  justify-content: center;
 }
 
 .dropzone {
   background: var(--accent-soft);
-  border-radius: 24px;
-  padding: 2.2rem 1.8rem;
+  border-radius: 20px;
+  padding: 2.6rem 2.2rem;
   border: 1px solid rgba(54, 112, 212, 0.25);
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 0.9rem;
-  text-align: left;
+  text-align: center;
+  width: clamp(280px, 80vw, 728px);
+  min-height: 504px;
+  justify-content: center;
 }
 
 .dropzone__icon {
-  width: 180px;
-  height: 160px;
+  width: 272px;
+  height: 176px;
   margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .dropzone__icon img {
@@ -121,7 +144,6 @@ a {
   margin: 0;
   color: #3264c4;
   font-weight: 500;
-  text-align: left;
 }
 
 .file-btn {
@@ -156,62 +178,42 @@ a {
   outline: 1px dashed rgba(54, 112, 212, 0.6);
 }
 
-.card__footer {
-  min-height: 48px;
-  padding: 0.75rem;
-  border-radius: 12px;
-  border: 1px dashed var(--border);
-  background: #f8fafc;
-  color: var(--text);
-  font-size: 0.95rem;
-  margin-top: 0.75rem;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.6rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: #eef2ff;
-  font-size: 0.9rem;
-}
-
-.pill.success {
-  color: var(--success);
-}
-.pill.error {
-  color: var(--error);
-}
-.pill.muted {
-  color: var(--muted);
-  background: #f8fafc;
-}
-
-.result-block {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.download-link {
-  color: var(--accent-2);
-  text-decoration: none;
-}
-
-.download-link:hover {
-  text-decoration: underline;
-}
-
 @media (max-width: 960px) {
   .hero {
     grid-template-columns: 1fr;
+    align-items: center;
+    justify-items: center;
+    gap: 1.25rem;
+  }
+
+  .hero__left {
+    transform: none;
+    align-items: flex-end;
+    margin-right: 0;
+    padding-top: 0;
+  }
+
+  .hero__left h1 {
+    text-align: right;
+    font-size: 32px;
+    line-height: 44px;
+    max-width: 100%;
+  }
+
+  .hero__right {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .dropzone {
+    width: clamp(280px, 90vw, 728px);
+    min-height: auto;
+    aspect-ratio: 728 / 504;
+    padding: 2rem 1.5rem;
+  }
+
+  .dropzone__icon {
+    width: 220px;
+    height: 142px;
   }
 }
