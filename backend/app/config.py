@@ -8,10 +8,11 @@ MODEL_PATH = MODEL_DIR / "model.joblib"
 VECTORIZER_PATH = MODEL_DIR / "vectorizer.joblib"
 
 # Simple mapping for class names; keep in sync with ML pipeline.
+# Классы: 0 — нейтрально, 1 — позитив, 2 — негатив.
 CLASS_NAMES = {
-    0: "negative",
-    1: "neutral",
-    2: "positive",
+    0: "neutral",
+    1: "positive",
+    2: "negative",
 }
 
 # Статистика/выгрузки CSV будут складываться сюда.
