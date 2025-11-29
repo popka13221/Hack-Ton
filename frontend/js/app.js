@@ -383,7 +383,15 @@ function stopPolling() {
 
 function handleResult(resp, { fromRestore = false } = {}) {
   const mode = resp?.mode === MODE_SCORE ? MODE_SCORE : MODE_PREDICT;
-  setStatus(mode === MODE_SCORE ? "Оценка завершена (валидация)" : "Анализ завершен", "success");
+  const fileReady = resp?.file_ready !== false;
+  setStatus(
+    fileReady
+      ? mode === MODE_SCORE
+        ? "Оценка завершена (валидация)"
+        : "Анализ завершен"
+      : "Файл формируется...",
+    fileReady ? "success" : "muted"
+  );
   renderSummary({
     summary: resp.summary,
     mode,
@@ -392,19 +400,29 @@ function handleResult(resp, { fromRestore = false } = {}) {
   });
   renderSample(resp.sample || [], mode);
   const fileUrl = resp.file_url ? resolveApiUrl(resp.file_url) : null;
-  setDownloadLink(fileUrl);
+  setDownloadLink(fileReady ? fileUrl : null);
   setProcessingTime(resp.processing_time_ms);
   renderCharts(resp.summary, resp.source_breakdown);
-  timeoutRetryCount = 0;
-  isBusy = false;
-  persistResult(resp);
-  if (!fromRestore) {
-    stopPolling();
-    resetFileInput();
+
+  if (fileReady) {
+    timeoutRetryCount = 0;
+    isBusy = false;
+    persistResult(resp);
+    if (!fromRestore) {
+      stopPolling();
+      resetFileInput();
+    } else {
+      currentTaskId = null;
+    }
+    setProgressVisible(false);
   } else {
-    currentTaskId = null;
+    isBusy = true;
+    setProgressVisible(true);
+    pollAttempt = 0;
+    if (currentTaskId) {
+      pollTimer = setTimeout(() => pollAnalyze(currentTaskId), POLL_INTERVAL_MS);
+    }
   }
-  setProgressVisible(false);
 }
 
 function isTimeoutError(message) {
@@ -443,7 +461,8 @@ async function pollAnalyze(taskId) {
     const status = resp?.status;
     if (status === "completed" && resp.result) {
       handleResult(resp.result);
-      return;
+      const fileReady = resp.result?.file_ready !== false && !!resp.result?.file_url;
+      if (fileReady) return;
     }
     if (status === "error") {
       handleError(resp.error || "Ошибка анализа файла");

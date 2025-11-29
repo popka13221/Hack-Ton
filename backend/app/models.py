@@ -53,6 +53,7 @@ class AnalyzeCsvResponse(BaseModel):
     summary: Optional[PredictCsvSummary] = None
     sample: Optional[List[Dict[str, Any]]] = None
     file_url: Optional[str] = None
+    file_ready: bool = True
     processing_time_ms: Optional[int] = None
     source_breakdown: Optional[Dict[str, Dict[str, int]]] = None
     macro_f1: Optional[float] = None

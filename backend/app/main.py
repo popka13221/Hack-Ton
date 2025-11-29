@@ -246,7 +246,7 @@ def analyze_csv(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=429, detail="Слишком много одновременных задач, попробуйте позже")
     try:
         data = file.file.read()
-        return _process_analyze_bytes(data, file.filename or "upload.csv")
+        return _process_analyze_bytes(data, file.filename or "upload.csv", defer_save=False)
     finally:
         if TASK_SEM:
             TASK_SEM.release()
@@ -311,7 +311,13 @@ def enforce_rate_limit(request: Request):
             raise HTTPException(status_code=429, detail="Превышен лимит запросов, попробуйте позже")
 
 
-def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
+def _process_analyze_bytes(
+    data: bytes,
+    filename: str,
+    *,
+    task_id: str | None = None,
+    defer_save: bool = False,
+) -> AnalyzeCsvResponse:
     t0 = time.perf_counter()
     df = csv_utils._read_csv_bytes(data, require_label=False)
     has_label = "label" in df.columns
@@ -321,8 +327,9 @@ def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
     sample = df_pred.head(20).to_dict(orient="records")
     duration_ms = int((time.perf_counter() - t0) * 1000)
     filename_prefix = "scored" if has_label else "predicted"
-    outfile = csv_utils.save_dataframe_csv(df_pred, f"{filename_prefix}_{uuid.uuid4().hex}.csv")
-    file_url = csv_utils.build_download_url(outfile)
+    outfile_name = f"{filename_prefix}_{uuid.uuid4().hex}.csv"
+    outfile = csv_utils.save_dataframe_csv(df_pred, outfile_name) if not defer_save else None
+    file_url = csv_utils.build_download_url(outfile) if outfile else None
 
     if has_label:
         macro, per_class, support = csv_utils.score_predictions(df_pred)
@@ -330,46 +337,106 @@ def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
             df_pred["label"].astype(int).tolist(),
             df_pred["predicted_label"].astype(int).tolist(),
         )
+        if not defer_save:
+            csv_utils.persist_batch(
+                file_name=filename,
+                purpose="score",
+                total_rows=len(df_pred),
+                class_counts=summary["class_counts"],
+                macro_f1=macro,
+                f1_per_class=per_class,
+                support=support,
+                output_path=str(outfile),
+                df_with_preds=df_pred,
+            )
+            return AnalyzeCsvResponse(
+                mode="score",
+                summary=summary,
+                sample=sample,
+                file_url=file_url,
+                file_ready=True,
+                processing_time_ms=duration_ms,
+                macro_f1=macro,
+                f1_per_class=per_class,
+                support=support,
+                confusion_matrix=cm,
+                source_breakdown=source_breakdown,
+            )
+        else:
+            # Отдаем быстрый ответ, файл сохраним и допишем позже.
+            result = AnalyzeCsvResponse(
+                mode="score",
+                summary=summary,
+                sample=sample,
+                file_url=None,
+                file_ready=False,
+                processing_time_ms=duration_ms,
+                macro_f1=macro,
+                f1_per_class=per_class,
+                support=support,
+                confusion_matrix=cm,
+                source_breakdown=source_breakdown,
+            )
+            if task_id:
+                threading.Thread(
+                    target=_save_file_and_update_task,
+                    args=(
+                        task_id,
+                        df_pred,
+                        outfile_name,
+                        filename,
+                        summary,
+                        "score",
+                        macro,
+                        per_class,
+                        support,
+                    ),
+                    daemon=True,
+                ).start()
+            return result
+
+    if not defer_save:
         csv_utils.persist_batch(
             file_name=filename,
-            purpose="score",
-            total_rows=len(df_pred),
+            purpose="predict",
+            total_rows=summary["total_rows"],
             class_counts=summary["class_counts"],
-            macro_f1=macro,
-            f1_per_class=per_class,
-            support=support,
             output_path=str(outfile),
             df_with_preds=df_pred,
         )
         return AnalyzeCsvResponse(
-            mode="score",
+            mode="predict",
             summary=summary,
             sample=sample,
             file_url=file_url,
+            file_ready=True,
             processing_time_ms=duration_ms,
-            macro_f1=macro,
-            f1_per_class=per_class,
-            support=support,
-            confusion_matrix=cm,
             source_breakdown=source_breakdown,
         )
-
-    csv_utils.persist_batch(
-        file_name=filename,
-        purpose="predict",
-        total_rows=summary["total_rows"],
-        class_counts=summary["class_counts"],
-        output_path=str(outfile),
-        df_with_preds=df_pred,
-    )
-    return AnalyzeCsvResponse(
-        mode="predict",
-        summary=summary,
-        sample=sample,
-        file_url=file_url,
-        processing_time_ms=duration_ms,
-        source_breakdown=source_breakdown,
-    )
+    else:
+        result = AnalyzeCsvResponse(
+            mode="predict",
+            summary=summary,
+            sample=sample,
+            file_url=None,
+            file_ready=False,
+            processing_time_ms=duration_ms,
+            source_breakdown=source_breakdown,
+        )
+        if task_id:
+            threading.Thread(
+                target=_save_file_and_update_task,
+                args=(
+                    task_id,
+                    df_pred,
+                    outfile_name,
+                    filename,
+                    summary,
+                    "predict",
+                ),
+                daemon=True,
+            ).start()
+        return result
 
 
 def _analyze_task_runner(task_id: str, data: bytes, filename: str):
@@ -381,7 +448,7 @@ def _analyze_task_runner(task_id: str, data: bytes, filename: str):
                 _set_task(task_id, status="error", error="Слишком много одновременных задач, попробуйте позже")
                 return
         started = time.time()
-        result = _process_analyze_bytes(data, filename)
+        result = _process_analyze_bytes(data, filename, task_id=task_id, defer_save=True)
         _set_task(
             task_id,
             status="completed",
@@ -413,7 +480,12 @@ def _set_task(
     if error:
         payload["error"] = error
     with _task_lock:
-        _tasks[task_id] = payload
+        existing = _tasks.get(task_id, {})
+        merged = {**existing, **payload}
+        # merge result if exists
+        if "result" in payload and "result" in existing:
+            merged["result"] = {**existing.get("result", {}), **payload["result"]}
+        _tasks[task_id] = merged
 
 
 def _get_task(task_id: str):
@@ -449,3 +521,39 @@ def _cleanup_tasks():
                 to_delete.append(task_id)
         for task_id in to_delete:
             _tasks.pop(task_id, None)
+
+
+def _save_file_and_update_task(
+    task_id: str,
+    df_pred,
+    outfile_name: str,
+    filename: str,
+    summary: dict,
+    purpose: str,
+    macro_f1: float | None = None,
+    f1_per_class: dict | None = None,
+    support: dict | None = None,
+):
+    try:
+        outfile = csv_utils.save_dataframe_csv(df_pred, outfile_name)
+        file_url = csv_utils.build_download_url(outfile)
+        csv_utils.persist_batch(
+            file_name=filename,
+            purpose=purpose,
+            total_rows=summary.get("total_rows", len(df_pred)),
+            class_counts=summary.get("class_counts", {}),
+            macro_f1=macro_f1,
+            f1_per_class=f1_per_class,
+            support=support,
+            output_path=str(outfile),
+            df_with_preds=df_pred,
+        )
+        _set_task(
+            task_id,
+            status="completed",
+            result={"file_url": file_url, "file_ready": True},
+            finished_at=time.time(),
+        )
+    except Exception as exc:
+        logger.warning("Не удалось сохранить файл для задачи %s: %s", task_id, exc, exc_info=True)
+        _set_task(task_id, status="error", error=str(exc), finished_at=time.time())

@@ -4,6 +4,23 @@ const apiBase =
   `${window.location.protocol}//${window.location.hostname}:8000`;
 
 export const API_BASE = apiBase;
+const DEFAULT_TIMEOUT_MS = 180000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    return resp;
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Таймаут запроса к API");
+    }
+    throw e;
+  } finally {
+    clearTimeout(id);
+  }
+}
 
 async function handleResponse(resp) {
   let data;
@@ -53,7 +70,7 @@ export async function predictCsv(file, opts = {}) {
 export async function analyzeCsv(file) {
   const fd = new FormData();
   fd.append("file", file);
-  const resp = await fetch(`${apiBase}/analyze_csv`, {
+  const resp = await fetchWithTimeout(`${apiBase}/analyze_csv`, {
     method: "POST",
     body: fd,
   });
@@ -63,7 +80,7 @@ export async function analyzeCsv(file) {
 export async function startAnalyzeCsv(file) {
   const fd = new FormData();
   fd.append("file", file);
-  const resp = await fetch(`${apiBase}/analyze_csv_async`, {
+  const resp = await fetchWithTimeout(`${apiBase}/analyze_csv_async`, {
     method: "POST",
     body: fd,
   });
@@ -71,7 +88,7 @@ export async function startAnalyzeCsv(file) {
 }
 
 export async function fetchAnalyzeStatus(taskId) {
-  const resp = await fetch(`${apiBase}/analyze_csv_async/${taskId}`);
+  const resp = await fetchWithTimeout(`${apiBase}/analyze_csv_async/${taskId}`, {}, 60000);
   return handleResponse(resp);
 }
 
