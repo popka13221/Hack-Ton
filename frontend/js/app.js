@@ -142,10 +142,34 @@ scoreBtn?.addEventListener("click", async () => {
          <div class="stat-grid">${perClass}</div>
          <div class="stat-grid">${support}</div>
          <div>${download} ${time}</div>
-       </div>`
+      </div>`
     );
   } catch (e) {
-    setResult(scoreResult, `<span class="pill error">${e.message}</span>`);
+    // Если нет label — fallback в predict_csv.
+    if (e.message && e.message.includes("label")) {
+      try {
+        const resp = await predictCsv(scoreFile.files[0], { returnFile: false });
+        const counts = formatCounts(resp.summary?.class_counts);
+        const download = resp.file_url
+          ? `<a class="download-link" href="${resp.file_url}">Скачать результат</a>`
+          : "";
+        const time = resp.processing_time_ms ? `<span class="pill">~${resp.processing_time_ms} мс</span>` : "";
+        setResult(
+          scoreResult,
+          `<div class="result-block">
+             <div class="pill success">Файл без label, выполнено predict.</div>
+             <div>Строк: ${resp.summary?.total_rows ?? 0}</div>
+             <div class="stat-grid">${counts}</div>
+             <div>${download} ${time}</div>
+           </div>`
+        );
+        return;
+      } catch (err2) {
+        setResult(scoreResult, `<span class="pill error">${err2.message}</span>`);
+        return;
+      }
+    }
+    setResult(scoreResult, `<span class="pill error">${e.message || "Ошибка запроса"}</span>`);
   }
 });
 
