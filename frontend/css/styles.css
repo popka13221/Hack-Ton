@@ -79,8 +79,10 @@ a {
   transform: none;
   margin-right: 0;
   padding-top: 10px;
-  min-width: 392px;
+  min-width: 320px;
   max-width: 392px;
+  position: relative;
+  z-index: 2;
 }
 
 .hero__left h1 {
@@ -91,9 +93,7 @@ a {
   text-align: right;
   text-transform: uppercase;
   font-family: "Ubuntu", "Inter", system-ui, -apple-system, sans-serif;
-  width: 392px;
-  min-width: 392px;
-  max-width: 392px;
+  width: 100%;
   white-space: normal;
   word-break: keep-all;
   overflow: hidden;
@@ -108,6 +108,8 @@ a {
   max-width: 728px;
   display: flex;
   justify-content: center;
+  position: relative;
+  z-index: 1;
 }
 
 .dropzone {
@@ -120,7 +122,8 @@ a {
   align-items: center;
   gap: 0.9rem;
   text-align: center;
-  width: clamp(280px, 80vw, 728px);
+  width: clamp(320px, 55vw, 800px);
+  max-width: calc(100% - 32px);
   min-height: 504px;
   justify-content: center;
 }
