@@ -81,7 +81,9 @@ a {
   padding-top: 10px;
   min-width: 320px;
   max-width: 392px;
-  position: relative;
+  position: sticky;
+  top: 300px;
+  align-self: flex-start;
   z-index: 2;
 }
 
@@ -352,6 +354,9 @@ a {
   }
 
   .hero__left {
+    position: static;
+    top: auto;
+    align-self: center;
     transform: none;
     align-items: flex-end;
     margin-right: 0;

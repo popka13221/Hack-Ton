@@ -13,6 +13,10 @@ const MODE_PREDICT = "predict";
 const MODE_SCORE = "score";
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_ATTEMPTS = 150; // ~5 минут ожидания
+const STORAGE_KEYS = {
+  taskId: "analyze_task_id",
+  result: "analyze_result",
+};
 
 const CLASS_NAMES = {
   "0": "Нейтрально",
@@ -24,6 +28,74 @@ let isBusy = false;
 let currentTaskId = null;
 let pollTimer = null;
 let pollAttempt = 0;
+
+function canUseStorage() {
+  try {
+    const testKey = "__test__";
+    window.localStorage.setItem(testKey, "1");
+    window.localStorage.removeItem(testKey);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function persistTaskId(taskId) {
+  if (!canUseStorage()) return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.taskId, taskId);
+    localStorage.removeItem(STORAGE_KEYS.result);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function persistResult(result) {
+  if (!canUseStorage()) return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.result, JSON.stringify(result));
+    localStorage.removeItem(STORAGE_KEYS.taskId);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function loadTaskId() {
+  if (!canUseStorage()) return null;
+  try {
+    return localStorage.getItem(STORAGE_KEYS.taskId);
+  } catch (e) {
+    return null;
+  }
+}
+
+function loadResult() {
+  if (!canUseStorage()) return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.result);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearStoredTask() {
+  if (!canUseStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.taskId);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function clearStoredResult() {
+  if (!canUseStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.result);
+  } catch (e) {
+    // ignore
+  }
+}
 
 function setStatus(text, tone = "muted") {
   if (!batchStatus) return;
@@ -211,7 +283,7 @@ function stopPolling() {
   pollAttempt = 0;
 }
 
-function handleResult(resp) {
+function handleResult(resp, { fromRestore = false } = {}) {
   const mode = resp?.mode === MODE_SCORE ? MODE_SCORE : MODE_PREDICT;
   setStatus(mode === MODE_SCORE ? "Оценка завершена (валидация)" : "Анализ завершен", "success");
   renderSummary({
@@ -225,8 +297,13 @@ function handleResult(resp) {
   setDownloadLink(fileUrl);
   setProcessingTime(resp.processing_time_ms);
   isBusy = false;
-  stopPolling();
-  resetFileInput();
+  persistResult(resp);
+  if (!fromRestore) {
+    stopPolling();
+    resetFileInput();
+  } else {
+    currentTaskId = null;
+  }
 }
 
 function handleError(message) {
@@ -237,6 +314,8 @@ function handleError(message) {
   isBusy = false;
   stopPolling();
   resetFileInput();
+  clearStoredTask();
+  clearStoredResult();
 }
 
 async function pollAnalyze(taskId) {
@@ -290,16 +369,19 @@ async function runPredict() {
     return;
   }
   stopPolling();
+  clearStoredTask();
   isBusy = true;
   setStatus("Отправляем файл в модель...", "muted");
   setProcessingTime();
   setDownloadLink(null);
   clearReport();
+  clearStoredResult();
   try {
     const resp = await startAnalyzeCsv(file);
     if (!resp?.task_id) {
       throw new Error("Не получили идентификатор задачи");
     }
+    persistTaskId(resp.task_id);
     resetFileInput();
     currentTaskId = resp.task_id;
     setStatus("Файл загружен, идет анализ...", "muted");
@@ -326,4 +408,20 @@ batchFile?.addEventListener("input", () => {
   if (!isBusy) runPredict();
 });
 
+function restoreState() {
+  const savedResult = loadResult();
+  if (savedResult) {
+    handleResult(savedResult, { fromRestore: true });
+  }
+  const savedTaskId = loadTaskId();
+  if (savedTaskId) {
+    currentTaskId = savedTaskId;
+    isBusy = true;
+    setStatus("Продолжаем анализ вашего файла...", "muted");
+    pollAttempt = 0;
+    pollTimer = setTimeout(() => pollAnalyze(savedTaskId), POLL_INTERVAL_MS);
+  }
+}
+
+restoreState();
 initHealth();
