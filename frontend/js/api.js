@@ -60,6 +60,21 @@ export async function analyzeCsv(file) {
   return handleResponse(resp);
 }
 
+export async function startAnalyzeCsv(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${apiBase}/analyze_csv_async`, {
+    method: "POST",
+    body: fd,
+  });
+  return handleResponse(resp);
+}
+
+export async function fetchAnalyzeStatus(taskId) {
+  const resp = await fetch(`${apiBase}/analyze_csv_async/${taskId}`);
+  return handleResponse(resp);
+}
+
 export async function scoreCsv(file) {
   const fd = new FormData();
   fd.append("file", file);

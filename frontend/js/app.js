@@ -1,4 +1,4 @@
-import { analyzeCsv, health, resolveApiUrl } from "./api.js";
+import { fetchAnalyzeStatus, health, resolveApiUrl, startAnalyzeCsv } from "./api.js";
 
 const batchFile = document.getElementById("batch-file");
 const batchFileLabel = document.getElementById("batch-file-label");
@@ -11,6 +11,8 @@ const processingTime = document.getElementById("processing-time");
 const DEFAULT_FILE_LABEL = "Выбрать файл";
 const MODE_PREDICT = "predict";
 const MODE_SCORE = "score";
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_ATTEMPTS = 150; // ~5 минут ожидания
 
 const CLASS_NAMES = {
   "0": "Нейтрально",
@@ -19,6 +21,9 @@ const CLASS_NAMES = {
 };
 
 let isBusy = false;
+let currentTaskId = null;
+let pollTimer = null;
+let pollAttempt = 0;
 
 function setStatus(text, tone = "muted") {
   if (!batchStatus) return;
@@ -188,6 +193,82 @@ function clearReport() {
   }
 }
 
+function resetFileInput() {
+  if (batchFile) {
+    batchFile.value = "";
+  }
+  if (batchFileLabel) {
+    batchFileLabel.textContent = DEFAULT_FILE_LABEL;
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+  currentTaskId = null;
+  pollAttempt = 0;
+}
+
+function handleResult(resp) {
+  const mode = resp?.mode === MODE_SCORE ? MODE_SCORE : MODE_PREDICT;
+  setStatus(mode === MODE_SCORE ? "Оценка завершена (валидация)" : "Анализ завершен", "success");
+  renderSummary({
+    summary: resp.summary,
+    mode,
+    macro_f1: resp.macro_f1,
+    f1_per_class: resp.f1_per_class,
+  });
+  renderSample(resp.sample || [], mode);
+  const fileUrl = resp.file_url ? resolveApiUrl(resp.file_url) : null;
+  setDownloadLink(fileUrl);
+  setProcessingTime(resp.processing_time_ms);
+  isBusy = false;
+  stopPolling();
+  resetFileInput();
+}
+
+function handleError(message) {
+  setStatus(message || "Ошибка", "error");
+  clearReport();
+  setDownloadLink(null);
+  setProcessingTime();
+  isBusy = false;
+  stopPolling();
+  resetFileInput();
+}
+
+async function pollAnalyze(taskId) {
+  if (currentTaskId && taskId !== currentTaskId) return;
+  try {
+    const resp = await fetchAnalyzeStatus(taskId);
+    const status = resp?.status;
+    if (status === "completed" && resp.result) {
+      handleResult(resp.result);
+      return;
+    }
+    if (status === "error") {
+      handleError(resp.error || "Ошибка анализа файла");
+      return;
+    }
+    if (pollAttempt >= MAX_POLL_ATTEMPTS) {
+      handleError("Таймаут ожидания анализа");
+      return;
+    }
+    pollAttempt += 1;
+    setStatus("Файл загружен, идет анализ...", "muted");
+  } catch (e) {
+    if (pollAttempt >= 3) {
+      handleError(formatError(e));
+      return;
+    }
+    pollAttempt += 1;
+    setStatus("Пробуем ещё раз получить статус...", "muted");
+  }
+  pollTimer = setTimeout(() => pollAnalyze(taskId), POLL_INTERVAL_MS);
+}
+
 async function initHealth() {
   try {
     const resp = await health();
@@ -208,38 +289,24 @@ async function runPredict() {
     setStatus("Выберите CSV с колонкой text", "error");
     return;
   }
+  stopPolling();
   isBusy = true;
   setStatus("Отправляем файл в модель...", "muted");
   setProcessingTime();
   setDownloadLink(null);
   clearReport();
   try {
-    const resp = await analyzeCsv(file);
-    const mode = resp.mode === MODE_SCORE ? MODE_SCORE : MODE_PREDICT;
-    setStatus(mode === MODE_SCORE ? "Оценка завершена (валидация)" : "Анализ завершен", "success");
-    renderSummary({
-      summary: resp.summary,
-      mode,
-      macro_f1: resp.macro_f1,
-      f1_per_class: resp.f1_per_class,
-    });
-    renderSample(resp.sample || [], mode);
-    const fileUrl = resp.file_url ? resolveApiUrl(resp.file_url) : null;
-    setDownloadLink(fileUrl);
-    setProcessingTime(resp.processing_time_ms);
+    const resp = await startAnalyzeCsv(file);
+    if (!resp?.task_id) {
+      throw new Error("Не получили идентификатор задачи");
+    }
+    resetFileInput();
+    currentTaskId = resp.task_id;
+    setStatus("Файл загружен, идет анализ...", "muted");
+    pollAttempt = 0;
+    pollTimer = setTimeout(() => pollAnalyze(resp.task_id), POLL_INTERVAL_MS);
   } catch (e) {
-    setStatus(formatError(e), "error");
-    clearReport();
-    setDownloadLink(null);
-    setProcessingTime();
-  } finally {
-    isBusy = false;
-    if (batchFile) {
-      batchFile.value = "";
-    }
-    if (batchFileLabel) {
-      batchFileLabel.textContent = DEFAULT_FILE_LABEL;
-    }
+    handleError(formatError(e));
   }
 }
 

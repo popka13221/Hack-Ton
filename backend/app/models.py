@@ -58,3 +58,10 @@ class AnalyzeCsvResponse(BaseModel):
     f1_per_class: Optional[Dict[str, float]] = None
     support: Optional[Dict[str, int]] = None
     confusion_matrix: Optional[List[List[int]]] = None
+
+
+class AnalyzeTaskStatus(BaseModel):
+    task_id: str
+    status: Literal["processing", "completed", "error"]
+    result: Optional[AnalyzeCsvResponse] = None
+    error: Optional[str] = None

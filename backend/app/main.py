@@ -22,6 +22,7 @@ from .models import (
     PredictCsvResponse,
     ScoreResponse,
     AnalyzeCsvResponse,
+    AnalyzeTaskStatus,
 )
 from .ml_model import get_model
 from . import csv_utils, db
@@ -45,6 +46,8 @@ else:
 # Простая in-memory rate-limit таблица.
 _rate_lock = threading.Lock()
 _rate_map = {}  # key -> (window_start_ts, count)
+_task_lock = threading.Lock()
+_tasks = {}  # task_id -> payload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -240,65 +243,34 @@ def analyze_csv(request: Request, file: UploadFile = File(...)):
     if TASK_SEM and not TASK_SEM.acquire(timeout=TASK_ACQUIRE_TIMEOUT):
         raise HTTPException(status_code=429, detail="Слишком много одновременных задач, попробуйте позже")
     try:
-        t0 = time.perf_counter()
-        df = csv_utils.read_upload(file, require_label=False)
-        has_label = "label" in df.columns
-        df_pred = csv_utils.add_predictions(df)
-        summary = csv_utils.summarize_predictions(df_pred)
-        sample = df_pred.head(20).to_dict(orient="records")
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-        filename_prefix = "scored" if has_label else "predicted"
-        filename = f"{filename_prefix}_{uuid.uuid4().hex}.csv"
-        saved_path = csv_utils.save_dataframe_csv(df_pred, filename)
-        file_url = csv_utils.build_download_url(saved_path)
-
-        if has_label:
-            macro, per_class, support = csv_utils.score_predictions(df_pred)
-            cm = csv_utils.confusion(
-                df_pred["label"].astype(int).tolist(),
-                df_pred["predicted_label"].astype(int).tolist(),
-            )
-            csv_utils.persist_batch(
-                file_name=file.filename or "upload.csv",
-                purpose="score",
-                total_rows=len(df_pred),
-                class_counts=summary["class_counts"],
-                macro_f1=macro,
-                f1_per_class=per_class,
-                support=support,
-                output_path=str(saved_path),
-                df_with_preds=df_pred,
-            )
-            return AnalyzeCsvResponse(
-                mode="score",
-                summary=summary,
-                sample=sample,
-                file_url=file_url,
-                processing_time_ms=duration_ms,
-                macro_f1=macro,
-                f1_per_class=per_class,
-                support=support,
-                confusion_matrix=cm,
-            )
-
-        csv_utils.persist_batch(
-            file_name=file.filename or "upload.csv",
-            purpose="predict",
-            total_rows=summary["total_rows"],
-            class_counts=summary["class_counts"],
-            output_path=str(saved_path),
-            df_with_preds=df_pred,
-        )
-        return AnalyzeCsvResponse(
-            mode="predict",
-            summary=summary,
-            sample=sample,
-            file_url=file_url,
-            processing_time_ms=duration_ms,
-        )
+        data = file.file.read()
+        return _process_analyze_bytes(data, file.filename or "upload.csv")
     finally:
         if TASK_SEM:
             TASK_SEM.release()
+
+
+@app.post("/analyze_csv_async", response_model=AnalyzeTaskStatus)
+def analyze_csv_async(request: Request, file: UploadFile = File(...)):
+    enforce_rate_limit(request)
+    task_id = uuid.uuid4().hex
+    data = file.file.read()
+    _set_task(task_id, status="processing")
+    thread = threading.Thread(
+        target=_analyze_task_runner,
+        args=(task_id, data, file.filename or "upload.csv"),
+        daemon=True,
+    )
+    thread.start()
+    return AnalyzeTaskStatus(task_id=task_id, status="processing")
+
+
+@app.get("/analyze_csv_async/{task_id}", response_model=AnalyzeTaskStatus)
+def analyze_csv_async_status(task_id: str):
+    task = _get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return task
 
 
 @app.get("/download/{filename}")
@@ -326,3 +298,95 @@ def enforce_rate_limit(request: Request):
         _rate_map[client] = (window_start, count)
         if count > RATE_LIMIT_PER_MIN:
             raise HTTPException(status_code=429, detail="Превышен лимит запросов, попробуйте позже")
+
+
+def _process_analyze_bytes(data: bytes, filename: str) -> AnalyzeCsvResponse:
+    t0 = time.perf_counter()
+    df = csv_utils._read_csv_bytes(data, require_label=False)
+    has_label = "label" in df.columns
+    df_pred = csv_utils.add_predictions(df)
+    summary = csv_utils.summarize_predictions(df_pred)
+    sample = df_pred.head(20).to_dict(orient="records")
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+    filename_prefix = "scored" if has_label else "predicted"
+    outfile = csv_utils.save_dataframe_csv(df_pred, f"{filename_prefix}_{uuid.uuid4().hex}.csv")
+    file_url = csv_utils.build_download_url(outfile)
+
+    if has_label:
+        macro, per_class, support = csv_utils.score_predictions(df_pred)
+        cm = csv_utils.confusion(
+            df_pred["label"].astype(int).tolist(),
+            df_pred["predicted_label"].astype(int).tolist(),
+        )
+        csv_utils.persist_batch(
+            file_name=filename,
+            purpose="score",
+            total_rows=len(df_pred),
+            class_counts=summary["class_counts"],
+            macro_f1=macro,
+            f1_per_class=per_class,
+            support=support,
+            output_path=str(outfile),
+            df_with_preds=df_pred,
+        )
+        return AnalyzeCsvResponse(
+            mode="score",
+            summary=summary,
+            sample=sample,
+            file_url=file_url,
+            processing_time_ms=duration_ms,
+            macro_f1=macro,
+            f1_per_class=per_class,
+            support=support,
+            confusion_matrix=cm,
+        )
+
+    csv_utils.persist_batch(
+        file_name=filename,
+        purpose="predict",
+        total_rows=summary["total_rows"],
+        class_counts=summary["class_counts"],
+        output_path=str(outfile),
+        df_with_preds=df_pred,
+    )
+    return AnalyzeCsvResponse(
+        mode="predict",
+        summary=summary,
+        sample=sample,
+        file_url=file_url,
+        processing_time_ms=duration_ms,
+    )
+
+
+def _analyze_task_runner(task_id: str, data: bytes, filename: str):
+    acquired = False
+    try:
+        if TASK_SEM:
+            acquired = TASK_SEM.acquire(timeout=TASK_ACQUIRE_TIMEOUT)
+            if not acquired:
+                _set_task(task_id, status="error", error="Слишком много одновременных задач, попробуйте позже")
+                return
+        result = _process_analyze_bytes(data, filename)
+        _set_task(task_id, status="completed", result=result)
+    except Exception as exc:
+        logger.warning("Async analyze failed: %s", exc, exc_info=True)
+        _set_task(task_id, status="error", error=str(exc))
+    finally:
+        if acquired:
+            TASK_SEM.release()
+
+
+def _set_task(task_id: str, status: str, result: AnalyzeCsvResponse | None = None, error: str | None = None):
+    payload = {"task_id": task_id, "status": status}
+    if result:
+        payload["result"] = result if isinstance(result, dict) else result.dict()
+    if error:
+        payload["error"] = error
+    with _task_lock:
+        _tasks[task_id] = payload
+
+
+def _get_task(task_id: str):
+    with _task_lock:
+        task = _tasks.get(task_id)
+    return task
