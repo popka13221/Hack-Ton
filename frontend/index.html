@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentiment Service</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="api-base" content="http://localhost:8000">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero__content">
+        <p class="eyebrow">Sentiment Service</p>
+        <h1>Анализ тональности отзывов</h1>
+        <p class="lede">Загрузите текст или CSV, получите предсказания, скачайте размеченный файл и оцените качество модели.</p>
+        <div class="status-bar" id="api-status">API: проверка...</div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card" id="single">
+        <div class="card__header">
+          <div>
+            <p class="eyebrow">Быстрый тест</p>
+            <h2>Анализ одного текста</h2>
+          </div>
+          <button id="single-btn" class="btn">Определить</button>
+        </div>
+        <textarea id="single-text" rows="4" placeholder="Введите отзыв..."></textarea>
+        <div class="card__footer" id="single-result"></div>
+      </section>
+
+      <section class="card" id="batch">
+        <div class="card__header">
+          <div>
+            <p class="eyebrow">CSV → предсказания</p>
+            <h2>Пакетная классификация</h2>
+          </div>
+          <div class="actions">
+            <label class="file-btn">
+              <input type="file" id="batch-file" accept=".csv">
+              <span id="batch-file-label">Выбрать CSV</span>
+            </label>
+            <button id="batch-btn" class="btn secondary">Запустить</button>
+          </div>
+        </div>
+        <div class="hint">Добавит predicted_label, отдаст файл и краткую статистику.</div>
+        <div class="card__footer" id="batch-result"></div>
+      </section>
+
+      <section class="card" id="score">
+        <div class="card__header">
+          <div>
+            <p class="eyebrow">CSV с label</p>
+            <h2>Качество модели (macro-F1)</h2>
+          </div>
+          <div class="actions">
+            <label class="file-btn">
+              <input type="file" id="score-file" accept=".csv">
+              <span id="score-file-label">Выбрать CSV</span>
+            </label>
+            <button id="score-btn" class="btn secondary">Оценить</button>
+          </div>
+        </div>
+        <div class="hint">Считает macro-F1, F1 по классам, выдаёт confusion matrix и файл с предсказаниями.</div>
+        <div class="card__footer" id="score-result"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/api.js" type="module"></script>
+  <script src="js/app.js" type="module"></script>
+</body>
+</html>

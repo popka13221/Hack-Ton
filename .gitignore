@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data and artifacts
+*.joblib
+*.pickle
+*.pkl
+*.csv
+*.tsv
+*.log
+.env
+.env.*
+
+# Local storage and artifacts
+backend/model_artifacts/
+backend/storage/
+storage/
+ml/data/
+TODO.md
+
+# Node / frontend
+node_modules/
+dist/
+.parcel-cache/
+.next/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

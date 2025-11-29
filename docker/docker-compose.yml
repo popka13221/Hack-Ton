@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend/model_artifacts:/app/backend/model_artifacts
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
