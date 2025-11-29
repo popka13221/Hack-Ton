@@ -9,6 +9,9 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.responses import PlainTextResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .models import (
     HealthResponse,
@@ -61,13 +64,13 @@ app.add_middleware(
 async def log_requests(request: Request, call_next):
     start = time.perf_counter()
     try:
-        response = await call_next(request)
-        status = response.status_code
-        error = None
-    except Exception as exc:
-        status = 500
-        error = str(exc)
-        response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+    response = await call_next(request)
+    status = response.status_code
+    error = None
+except Exception as exc:
+    status = 500
+    error = str(exc)
+    response = JSONResponse({"detail": "Internal server error"}, status_code=500)
     duration_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
         json.dumps(
@@ -91,6 +94,40 @@ def health() -> HealthResponse:
     model = get_model()
     db_ok = db.is_available()
     return HealthResponse(model_loaded=model.is_loaded, db_connected=db_ok)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    logger.warning(
+        json.dumps(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "status": exc.status_code,
+                "detail": exc.detail,
+                "client": request.client.host if request.client else None,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(
+        json.dumps(
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "status": 422,
+                "detail": exc.errors(),
+                "client": request.client.host if request.client else None,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return PlainTextResponse(str(exc), status_code=422)
 
 
 @app.post("/predict_text", response_model=PredictTextResponse)

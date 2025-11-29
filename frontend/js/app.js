@@ -26,6 +26,11 @@ function formatCounts(counts = {}) {
     .join(" ");
 }
 
+function formatError(err) {
+  if (!err) return "Неизвестная ошибка";
+  return err.message || String(err);
+}
+
 function attachDragAndDrop(area, input, labelEl) {
   ["dragenter", "dragover"].forEach((ev) =>
     area.addEventListener(ev, (e) => {
@@ -85,7 +90,7 @@ singleBtn?.addEventListener("click", async () => {
       </div>`
     );
   } catch (e) {
-    setResult(singleResult, `<span class="pill error">${e.message}</span>`);
+    setResult(singleResult, `<span class="pill error">${formatError(e)}</span>`);
   }
 });
 
@@ -113,7 +118,7 @@ batchBtn?.addEventListener("click", async () => {
        </div>`
     );
   } catch (e) {
-    setResult(batchResult, `<span class="pill error">${e.message}</span>`);
+    setResult(batchResult, `<span class="pill error">${formatError(e)}</span>`);
   }
 });
 
@@ -165,11 +170,11 @@ scoreBtn?.addEventListener("click", async () => {
         );
         return;
       } catch (err2) {
-        setResult(scoreResult, `<span class="pill error">${err2.message}</span>`);
+        setResult(scoreResult, `<span class="pill error">${formatError(err2)}</span>`);
         return;
       }
     }
-    setResult(scoreResult, `<span class="pill error">${e.message || "Ошибка запроса"}</span>`);
+    setResult(scoreResult, `<span class="pill error">${formatError(e)}</span>`);
   }
 });
 
