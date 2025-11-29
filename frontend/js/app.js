@@ -4,8 +4,6 @@ const batchFile = document.getElementById("batch-file");
 const batchResult = document.getElementById("batch-result");
 const batchFileLabel = document.getElementById("batch-file-label");
 const dropzone = document.getElementById("dropzone");
-const apiStatus = document.getElementById("api-status");
-
 function setResult(el, html) {
   el.innerHTML = html;
 }
@@ -53,15 +51,9 @@ function attachDragAndDrop(area, input, labelEl) {
 
 async function initHealth() {
   try {
-    apiStatus.textContent = "API: проверка...";
-    const h = await health();
-    const model = h.model_loaded ? "модель загружена" : "модель не загружена";
-    const db = h.db_connected ? "БД: ok" : "БД: нет";
-    apiStatus.textContent = `API: ok · ${model} · ${db}`;
-    apiStatus.classList.remove("error");
+    await health();
   } catch (e) {
-    apiStatus.textContent = "API: не доступен";
-    apiStatus.classList.add("error");
+    // no-op
   }
 }
 
