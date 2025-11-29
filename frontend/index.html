@@ -13,8 +13,12 @@
 <body>
   <div class="page">
     <header class="topbar">
-      <div class="logo">Тон</div>
-      <a class="login" href="#">Войти</a>
+      <div class="logo">
+        <img src="assets/ton.svg" alt="ТОН">
+      </div>
+      <a class="login" href="#">
+        <img src="assets/login.svg" alt="Войти" class="login__icon"> Войти
+      </a>
     </header>
 
     <main class="hero hero--simple">
@@ -24,7 +28,9 @@
       </div>
       <div class="hero__right">
         <div class="dropzone" id="dropzone">
-          <div class="dropzone__icon"></div>
+          <div class="dropzone__icon">
+            <img src="assets/Frame 4.svg" alt="upload">
+          </div>
           <p class="dropzone__hint">Перетащите файл сюда или выберите его</p>
           <label class="file-btn primary">
             <input type="file" id="batch-file" accept=".csv">
